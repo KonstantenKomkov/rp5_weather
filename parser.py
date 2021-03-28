@@ -85,10 +85,63 @@ def get_weather_for_year(year, weather_station):
             'Host': 'rp5.ru',
             'Origin': 'https://rp5.ru',
             'Referer': 'https://rp5.ru/',
+            'sec-ch-ua': '"Google Chrome";v="89", "Chromium";v="89", ";Not A Brand";v="99"',
+            'sec-ch-ua-mobile': '?0',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.'
                           '0.4389.90 Safari/537.36',
             'X-Requested-With': 'XMLHttpRequest'
         }
+
+        def send_prequery():
+            h = {
+                'Accept': 'text/html, */*; q=0.01',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept-Language': 'ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7',
+                'Connection': 'keep-alive',
+                'Content-Length': '157',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Cookie': 'PHPSESSID=3230f98172005d6cec8148fc21a46a56; located=1; extreme_open=false; full_table=1; '
+                          'tab_wug=1; ftab=2; tab_metar=1; zoom=11; i=6106%7C3708%7C4012%7C5174%7C6151; iru=6106%7C3708'
+                          '%7C4012%7C5174%7C6151; ru=%D0%9D%D0%BE%D1%80%D0%B8%D0%BB%D1%8C%D1%81%D0%BA%7C%D0%9A%D0%B0%'
+                          'D0%BB%D1%83%D0%B3%D0%B0%7C%D0%9A%D0%B8%D1%80%D0%BE%D0%B2+%28%D1%80%D0%B0%D0%B9%D0%BE%D0%BD'
+                          '%D0%BD%D1%8B%D0%B9+%D1%86%D0%B5%D0%BD%D1%82%D1%80%29%7C%D0%9C%D0%B0%D0%BB%D0%BE%D1%8F%D1%80'
+                          '%D0%BE%D1%81%D0%BB%D0%B0%D0%B2%D0%B5%D1%86%7C%D0%9E%D0%B1%D0%BD%D0%B8%D0%BD%D1%81%D0%BA; '
+                          'last_visited_page=http%3A%2F%2Frp5.ru%2F%D0%9F%D0%BE%D0%B3%D0%BE%D0%B4%D0%B0_%D0%B2_%D0%9E'
+                          '%D0%B1%D0%BD%D0%B8%D0%BD%D1%81%D0%BA%D0%B5; tab_synop=2; format=xls; f_enc=ansi; lang=ru',
+                'Host': 'rp5.ru',
+                'Origin': 'https://rp5.ru',
+                'Referer': 'https://rp5.ru/',
+                'sec-ch-ua': '"Google Chrome";v="89", "Chromium";v="89", ";Not A Brand";v="99"',
+                'sec-ch-ua-mobile': '?0',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome'
+                              '/89.0.4389.90 Safari/537.36',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+            response = requests.post(
+                'https://rp5.ru/responses/reStatistSynop.php',
+                data={
+                    'wmo_id': weather_station,
+                    'stat_p': 1,
+                    's_date1': datetime.now().strftime('%d.%m.%Y'),
+                    's_ed3': 3,
+                    's_ed4': 3,
+                    's_ed5': 28,
+                    's_date2': datetime.now().strftime('%d.%m.%Y'),
+                    's_ed9': 0,
+                    's_ed10': -1,
+                    's_pe': 1,
+                    'lng_id': 2,
+                    's_dtimehi': '-срок---'
+                },
+                headers=h,
+            )
+            return response
 
         def send_query(h):
             response = requests.post(
@@ -108,14 +161,25 @@ def get_weather_for_year(year, weather_station):
             )
             return response
 
-        response = send_query(headers)
+        # TODO: Fix 'Error #FS000;' нет понимания откуда идёт ошибка
+        # send_prequery()
+        answer = send_query(headers)
         index: int = 1
-        while response.text == 'Error #FS000;':
-            print(f"Попытка {index}. {response.text}")
+        while answer.text == 'Error #FS000;':
+            print(f"Попытка {index}. {answer.text}")
             index += 1
-            response = send_query(headers)
-        # removeprefix('<script type="text/javascript">$("#f_result").empty().append(\'<a href=')
-        print(response.text)
+            answer = send_query(headers)
+        start_position: int = answer.text.find('<a href=http')
+        end_position: int = answer.text.find('.csv.gz')
+        if start_position > -1 and end_position > -1:
+            download_link: str = answer.text[start_position + 8:end_position + 7]
+        else:
+            raise ValueError('Ссылка на скачивание архива не найдена!')
+        print(download_link)
+
+        with open(f'{year}.csv.gz', "wb") as file:
+            response = requests.get(download_link)
+            file.write(response.content)
         return datetime.now().date()
     else:
         raise ValueError(f"Запрос погоды из будущего года {year}!")
