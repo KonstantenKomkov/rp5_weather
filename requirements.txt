@@ -1,0 +1,12 @@
+beautifulsoup4==4.9.3
+bs4==0.0.1
+certifi==2020.12.5
+chardet==4.0.0
+idna==2.10
+lxml==4.6.3
+pydantic==1.8.1
+Pympler==0.9
+requests==2.25.1
+soupsieve==2.2.1
+typing-extensions==3.7.4.3
+urllib3==1.26.4
