@@ -2,12 +2,13 @@ from bs4 import BeautifulSoup
 from datetime import date, datetime
 from pathlib import Path
 from pydantic import BaseModel
-import requests
 from requests.exceptions import HTTPError
+from requests import Session
 
 
 STATIC_ROOT = './static/'
 URL = 'https://rp5.ru/responses/reFileSynop.php'
+current_session: Session = Session()
 
 
 class WeatherStation(BaseModel):
@@ -19,7 +20,13 @@ class WeatherStation(BaseModel):
     start_date: date = None
 
 
-def read_new_cities() -> list:
+def read_new_cities() -> [WeatherStation]:
+    """Get data about new weather stations from csv file for site rp5.ru.
+    Csv file structure:
+    -city;
+    -link on weathers archive page for city in site rp5.ru;
+    -0 if we want load data with start observations, 1 else we have some data."""
+
     stations: list[WeatherStation] = list()
     with open(f"{STATIC_ROOT}cities.txt", 'r', encoding="utf-8") as f:
         for line in f:
@@ -29,23 +36,30 @@ def read_new_cities() -> list:
     return stations
 
 
-def get_missing_ws_info(stations) -> list:
+def get_missing_ws_info(stations: [WeatherStation]) -> [WeatherStation]:
+    """Getting start date of observations and numbers weather station from site rp5.ru."""
+
+    global current_session
+
     def get_start_date(s: str) -> date:
+        """Function get start date of observations for current weather station."""
+
         months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября',
                   'ноября', 'декабря', ]
         s = s.removeprefix(' номер метеостанции     , наблюдения с ')
         date_list: list
         date_list = s.strip(' ').split(' ')
         date_list[0] = int(date_list[0])
-        date_list[1] = months.index(date_list[1])+1
+        date_list[1] = months.index(date_list[1]) + 1
         date_list[2] = int(date_list[2])
         start_date = date(date_list[2], date_list[1], date_list[0])
         return start_date
 
     ws: WeatherStation
     for ws in stations:
+
         try:
-            response = requests.get(ws.link)
+            response = current_session.get(ws.link)
         except HTTPError as http_err:
             print(f'HTTP error occurred: {http_err}')
         except Exception as err:
@@ -54,6 +68,8 @@ def get_missing_ws_info(stations) -> list:
             soup = BeautifulSoup(response.text, 'lxml')
             ws.ws_id = soup.find("input", id="wmo_id").get('value')
             ws.start_date = get_start_date(soup.find("input", id="wmo_id").parent.text)
+        # Now is tested but then must be deleted
+        break
     return stations
 
 
@@ -61,140 +77,120 @@ def create_directory(ws: WeatherStation):
     Path(f"{STATIC_ROOT}{ws.city}").mkdir(parents=True, exist_ok=True)
 
 
-def get_weather_for_year(year, weather_station):
-    if year <= datetime.now().year:
-        if datetime.now().date() > date(year, 12, 31):
-            last_date = date(year, 12, 31)
-        else:
-            last_date = datetime.now()
-        headers = {
-            'Accept': 'text/html, */*; q=0.01',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Accept-Language': 'ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7',
-            'Connection': 'keep-alive',
-            'Content-Length': '108',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Cookie': 'PHPSESSID=3230f98172005d6cec8148fc21a46a56; located=1; extreme_open=false; full_table=1; '
-                      'tab_wug=1; ftab=2; tab_metar=1; zoom=11; i=6106%7C3708%7C4012%7C5174%7C6151; '
-                      'iru=6106%7C3708%7C4012%7C5174%7C6151; ru=%D0%9D%D0%BE%D1%80%D0%B8%D0%BB%D1%8C%D1%81%D0%BA%7C%D0'
-                      '%9A%D0%B0%D0%BB%D1%83%D0%B3%D0%B0%7C%D0%9A%D0%B8%D1%80%D0%BE%D0%B2+%28%D1%80%D0%B0%D0%B9%D0%BE'
-                      '%D0%BD%D0%BD%D1%8B%D0%B9+%D1%86%D0%B5%D0%BD%D1%82%D1%80%29%7C%D0%9C%D0%B0%D0%BB%D0%BE%D1%8F%D1'
-                      '%80%D0%BE%D1%81%D0%BB%D0%B0%D0%B2%D0%B5%D1%86%7C%D0%9E%D0%B1%D0%BD%D0%B8%D0%BD%D1%81%D0%BA; '
-                      'last_visited_page=http%3A%2F%2Frp5.ru%2F%D0%9F%D0%BE%D0%B3%D0%BE%D0%B4%D0%B0_%D0%B2_%D0%9E%D0%B1'
-                      '%D0%BD%D0%B8%D0%BD%D1%81%D0%BA%D0%B5; tab_synop=2; format=xls; f_enc=ansi; lang=ru',
-            'Host': 'rp5.ru',
-            'Origin': 'https://rp5.ru',
-            'Referer': 'https://rp5.ru/',
-            'sec-ch-ua': '"Google Chrome";v="89", "Chromium";v="89", ";Not A Brand";v="99"',
-            'sec-ch-ua-mobile': '?0',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.'
-                          '0.4389.90 Safari/537.36',
-            'X-Requested-With': 'XMLHttpRequest'
-        }
+def get_text_with_link_on_weather_data_file(ws_id: int, start_date: date, last_date: date):
+    """Function create query for site rp5.ru with special params for
+    getting JS text with link on csv.gz file and returns response of query.
+    I use session and headers because site return text - 'Error #FS000;'
+    in otherwise."""
 
-        def send_prequery():
-            h = {
-                'Accept': 'text/html, */*; q=0.01',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Accept-Language': 'ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7',
-                'Connection': 'keep-alive',
-                'Content-Length': '157',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Cookie': 'PHPSESSID=3230f98172005d6cec8148fc21a46a56; located=1; extreme_open=false; full_table=1; '
-                          'tab_wug=1; ftab=2; tab_metar=1; zoom=11; i=6106%7C3708%7C4012%7C5174%7C6151; iru=6106%7C3708'
-                          '%7C4012%7C5174%7C6151; ru=%D0%9D%D0%BE%D1%80%D0%B8%D0%BB%D1%8C%D1%81%D0%BA%7C%D0%9A%D0%B0%'
-                          'D0%BB%D1%83%D0%B3%D0%B0%7C%D0%9A%D0%B8%D1%80%D0%BE%D0%B2+%28%D1%80%D0%B0%D0%B9%D0%BE%D0%BD'
-                          '%D0%BD%D1%8B%D0%B9+%D1%86%D0%B5%D0%BD%D1%82%D1%80%29%7C%D0%9C%D0%B0%D0%BB%D0%BE%D1%8F%D1%80'
-                          '%D0%BE%D1%81%D0%BB%D0%B0%D0%B2%D0%B5%D1%86%7C%D0%9E%D0%B1%D0%BD%D0%B8%D0%BD%D1%81%D0%BA; '
-                          'last_visited_page=http%3A%2F%2Frp5.ru%2F%D0%9F%D0%BE%D0%B3%D0%BE%D0%B4%D0%B0_%D0%B2_%D0%9E'
-                          '%D0%B1%D0%BD%D0%B8%D0%BD%D1%81%D0%BA%D0%B5; tab_synop=2; format=xls; f_enc=ansi; lang=ru',
-                'Host': 'rp5.ru',
-                'Origin': 'https://rp5.ru',
-                'Referer': 'https://rp5.ru/',
-                'sec-ch-ua': '"Google Chrome";v="89", "Chromium";v="89", ";Not A Brand";v="99"',
-                'sec-ch-ua-mobile': '?0',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-origin',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome'
-                              '/89.0.4389.90 Safari/537.36',
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-            response = requests.post(
-                'https://rp5.ru/responses/reStatistSynop.php',
-                data={
-                    'wmo_id': weather_station,
-                    'stat_p': 1,
-                    's_date1': datetime.now().strftime('%d.%m.%Y'),
-                    's_ed3': 3,
-                    's_ed4': 3,
-                    's_ed5': 28,
-                    's_date2': datetime.now().strftime('%d.%m.%Y'),
-                    's_ed9': 0,
-                    's_ed10': -1,
-                    's_pe': 1,
-                    'lng_id': 2,
-                    's_dtimehi': '-срок---'
-                },
-                headers=h,
-            )
-            return response
+    global current_session
+    current_session.headers = {
+        'Accept': 'text/html, */*; q=0.01',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7',
+        'Connection': 'keep-alive',
+        'Content-Length': '108',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cookie': f'PHPSESSID={current_session.cookies.items()[0][1]}; located=1; extreme_open=false; full_'
+                  f'table=1; tab_wug=1; ftab=2; tab_metar=1; zoom=11; i=6106%7C3708%7C4012%7C5174%7C6151; '
+                  f'iru=6106%7C3708%7C4012%7C5174%7C6151; ru=%D0%9D%D0%BE%D1%80%D0%B8%D0%BB%D1%8C%D1%81%D0%BA'
+                  f'%7C%D0%9A%D0%B0%D0%BB%D1%83%D0%B3%D0%B0%7C%D0%9A%D0%B8%D1%80%D0%BE%D0%B2+%28%D1%80%D0%B0%D0'
+                  f'%B9%D0%BE%D0%BD%D0%BD%D1%8B%D0%B9+%D1%86%D0%B5%D0%BD%D1%82%D1%80%29%7C%D0%9C%D0%B0%D0%BB%D0'
+                  f'%BE%D1%8F%D1%80%D0%BE%D1%81%D0%BB%D0%B0%D0%B2%D0%B5%D1%86%7C%D0%9E%D0%B1%D0%BD%D0%B8%D0%BD'
+                  f'%D1%81%D0%BA; last_visited_page=http%3A%2F%2Frp5.ru%2F%D0%9F%D0%BE%D0%B3%D0%BE%D0%B4%D0%B0_'
+                  f'%D0%B2_%D0%9E%D0%B1%D0%BD%D0%B8%D0%BD%D1%81%D0%BA%D0%B5; tab_synop=2; format=xls; '
+                  f'f_enc=ansi; lang=ru',
+        'Host': 'rp5.ru',
+        'Origin': 'https://rp5.ru',
+        'Referer': 'https://rp5.ru/',
+        'sec-ch-ua': '"Google Chrome";v="89", "Chromium";v="89", ";Not A Brand";v="99"',
+        'sec-ch-ua-mobile': '?0',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/89.0.4389.90 Safari/537.36',
+        'X-Requested-With': 'XMLHttpRequest'
+    }
+    try:
+        result = current_session.post(
+            URL,
+            data={'wmo_id': ws_id, 'a_date1': start_date.strftime('%d.%m.%Y'),
+                  'a_date2': last_date.strftime('%d.%m.%Y'), 'f_ed3': 3, 'f_ed4': 3, 'f_ed5': 27, 'f_pe': 1,
+                  'f_pe1': 2, 'lng_id': 2, })
+    except HTTPError as http_err:
+        print(f'HTTP error occurred: {http_err}')
+    except Exception as err:
+        print(f'Other error occurred: {err}')
+    return result
 
-        def send_query(h):
-            response = requests.post(
-                URL,
-                data={
-                    'wmo_id': weather_station,
-                    'a_date1': f'01.01.{year}',
-                    'a_date2': last_date.strftime('%d.%m.%Y'),
-                    'f_ed3': 3,
-                    'f_ed4': 3,
-                    'f_ed5': 27,
-                    'f_pe': 1,
-                    'f_pe1': 2,
-                    'lng_id': 2,
-                },
-                headers=h,
-            )
-            return response
 
-        # TODO: Fix 'Error #FS000;' нет понимания откуда идёт ошибка
-        # send_prequery()
-        answer = send_query(headers)
-        index: int = 1
-        while answer.text == 'Error #FS000;':
-            print(f"Попытка {index}. {answer.text}")
-            index += 1
-            answer = send_query(headers)
-        start_position: int = answer.text.find('<a href=http')
-        end_position: int = answer.text.find('.csv.gz')
-        if start_position > -1 and end_position > -1:
-            download_link: str = answer.text[start_position + 8:end_position + 7]
-        else:
-            raise ValueError('Ссылка на скачивание архива не найдена!')
-        print(download_link)
+def get_link_archive_file(text: str) -> str:
+    """Function extract link on archive file with weather data from text."""
 
-        with open(f'{year}.csv.gz', "wb") as file:
-            response = requests.get(download_link)
-            file.write(response.content)
-        return datetime.now().date()
+    start_position: int = text.find('<a href=http')
+    end_position: int = text.find('.csv.gz')
+    if start_position > -1 and end_position > -1:
+        link: str = text[start_position + 8:end_position + 7]
     else:
-        raise ValueError(f"Запрос погоды из будущего года {year}!")
+        raise ValueError(f'Ссылка на скачивание архива не найдена! Text: "{answer.text}"')
+    return link
 
 
-new_stations = read_new_cities()
-if new_stations:
-    get_missing_ws_info(new_stations)
+def get_weather_for_year(start_date: date, ws_id: int, city: str):
+    """Function get archive file from site rp5.ru with weather data for one year
+    and save it at directory."""
 
-station: WeatherStation
-for station in new_stations:
-    create_directory(station)
-    start_year: int = station.start_date.year
-    while start_year < datetime.now().year + 1:
-        get_weather_for_year(start_year, station.ws_id)
-        break
-        start_year += 1
-    break
+    global current_session
+    if start_date.year <= datetime.now().year:
+        if datetime.now().date() > date(start_date.year, 12, 31):
+            last_date: date = date(start_date.year, 12, 31)
+        else:
+            last_date: date = datetime.now().date()
+
+        answer = get_text_with_link_on_weather_data_file(ws_id, start_date, last_date)
+
+        download_link = get_link_archive_file(answer.text)
+
+        with open(f'{STATIC_ROOT}{city}/{start_date.year}.csv.gz', "wb") as file:
+            response = current_session.get(download_link)
+            file.write(response.content)
+        return None
+    else:
+        raise ValueError(f"Запрос погоды из будущего {start_date.year} года!")
+
+
+def get_all_data_for_weather_stations():
+    """Function get all weather data for new weather stations from csv file
+    from start date of observations to today."""
+
+    new_stations = read_new_cities()
+
+    if new_stations:
+        get_missing_ws_info(new_stations)
+
+        station: WeatherStation
+        for station in new_stations:
+            create_directory(station)
+            start_year: int = station.start_date.year
+            while start_year < datetime.now().year + 1:
+                if start_year == station.start_date.year:
+                    start_date: date = station.start_date
+                else:
+                    start_date: date = date(start_year, 1, 1)
+                get_weather_for_year(start_date, station.ws_id, station.city)
+                break
+                start_year += 1
+            break
+    return
+
+
+# mode 2
+def get_data_for_weather_stations_with_end_date():
+    """Function get weather data for weather stations from csv file
+    from ended date of last downloads to today."""
+
+    pass
+
+
+get_all_data_for_weather_stations()
