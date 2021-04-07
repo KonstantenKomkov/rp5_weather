@@ -154,6 +154,8 @@ def get_weather_for_year(start_date: date, ws_id: int, city: str):
 
         with open(f'{STATIC_ROOT}{city}/{start_date.year}.csv.gz', "wb") as file:
             response = current_session.get(download_link)
+            while response.status_code != 200:
+                response = current_session.get(download_link)
             file.write(response.content)
         return None
     else:
@@ -179,7 +181,6 @@ def get_all_data_for_weather_stations():
                 else:
                     start_date: date = date(start_year, 1, 1)
                 get_weather_for_year(start_date, station.ws_id, station.city)
-                break
                 start_year += 1
             break
     return
