@@ -133,7 +133,7 @@ def get_link_archive_file(text: str) -> str:
     if start_position > -1 and end_position > -1:
         link: str = text[start_position + 8:end_position + 7]
     else:
-        raise ValueError(f'Ссылка на скачивание архива не найдена! Text: "{answer.text}"')
+        raise ValueError(f'Ссылка на скачивание архива не найдена! Text: "{text}"')
     return link
 
 
@@ -185,7 +185,6 @@ def get_all_data_for_weather_stations():
     return
 
 
-# mode 2
 def get_data_for_weather_stations_with_end_date():
     """Function get weather data for weather stations from csv file
     from ended date of last downloads to today."""
