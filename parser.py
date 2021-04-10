@@ -1,5 +1,6 @@
 from bs4 import BeautifulSoup
 from datetime import date, datetime
+import zlib
 from pathlib import Path
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
@@ -9,6 +10,7 @@ from requests import Session
 STATIC_ROOT = './static/'
 URL = 'https://rp5.ru/responses/reFileSynop.php'
 current_session: Session = Session()
+DELIMITER = '#'
 
 
 class WeatherStation(BaseModel):
@@ -19,24 +21,37 @@ class WeatherStation(BaseModel):
     longitude: float = None
     start_date: date = None
 
+    def to_csv(self, delimiter):
+        if self.start_date is None:
+            return f"{self.city}{delimiter}{self.link}"
+        return f"{self.city}{delimiter}{self.link}{delimiter}" \
+               f"{self.start_date.strftime('%Y-%m-%d')}{delimiter}{self.ws_id}"
 
-def read_new_cities() -> [WeatherStation]:
+
+def read_new_cities(delimiter: str) -> [WeatherStation]:
     """Get data about new weather stations from csv file for site rp5.ru.
     Csv file structure:
     -city;
     -link on weathers archive page for city in site rp5.ru;
-    -0 if we want load data with start observations, 1 else we have some data."""
+    -nothing or last date of loaded information;
+    -nothing or id of weather station."""
 
     stations: list[WeatherStation] = list()
     with open(f"{STATIC_ROOT}cities.txt", 'r', encoding="utf-8") as f:
         for line in f:
-            temp = line.strip('\n').split('#')
-            if temp[2] == '0':
+            temp = line.strip('\n').split(delimiter)
+            if len(temp) > 2:
+                stations.append(WeatherStation(
+                    city=temp[0],
+                    link=temp[1],
+                    start_date=datetime.strptime(temp[2], '%Y-%m-%d').date(),
+                    ws_id=int(temp[3])))
+            else:
                 stations.append(WeatherStation(city=temp[0], link=temp[1]))
     return stations
 
 
-def get_missing_ws_info(stations: [WeatherStation]) -> [WeatherStation]:
+def get_missing_ws_info(station: WeatherStation) -> WeatherStation:
     """Getting start date of observations and numbers weather station from site rp5.ru."""
 
     global current_session
@@ -44,33 +59,27 @@ def get_missing_ws_info(stations: [WeatherStation]) -> [WeatherStation]:
     def get_start_date(s: str) -> date:
         """Function get start date of observations for current weather station."""
 
-        months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября',
-                  'ноября', 'декабря', ]
+        months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля',
+                  'августа', 'сентября', 'октября', 'ноября', 'декабря', ]
         s = s.removeprefix(' номер метеостанции     , наблюдения с ')
-        date_list: list
-        date_list = s.strip(' ').split(' ')
-        date_list[0] = int(date_list[0])
-        date_list[1] = months.index(date_list[1]) + 1
-        date_list[2] = int(date_list[2])
-        start_date = date(date_list[2], date_list[1], date_list[0])
+        date_list: list = s.strip(' ').split(' ')
+        year = int(date_list[2])
+        month = months.index(date_list[1]) + 1
+        day = int(date_list[0])
+        start_date: date = date(year, month, day)
         return start_date
 
-    ws: WeatherStation
-    for ws in stations:
-
-        try:
-            response = current_session.get(ws.link)
-        except HTTPError as http_err:
-            print(f'HTTP error occurred: {http_err}')
-        except Exception as err:
-            print(f'Other error occurred: {err}')
-        else:
-            soup = BeautifulSoup(response.text, 'lxml')
-            ws.ws_id = soup.find("input", id="wmo_id").get('value')
-            ws.start_date = get_start_date(soup.find("input", id="wmo_id").parent.text)
-        # Now is tested but then must be deleted
-        break
-    return stations
+    try:
+        response = current_session.get(station.link)
+    except HTTPError as http_err:
+        print(f'HTTP error occurred: {http_err}')
+    except Exception as err:
+        print(f'Other error occurred: {err}')
+    else:
+        soup = BeautifulSoup(response.text, 'lxml')
+        station.ws_id = soup.find("input", id="wmo_id").get('value')
+        station.start_date = get_start_date(soup.find("input", id="wmo_id").parent.text)
+    return station
 
 
 def create_directory(ws: WeatherStation):
@@ -152,27 +161,44 @@ def get_weather_for_year(start_date: date, ws_id: int, city: str):
 
         download_link = get_link_archive_file(answer.text)
 
-        with open(f'{STATIC_ROOT}{city}/{start_date.year}.csv.gz', "wb") as file:
+        with open(f'{STATIC_ROOT}{city}/{start_date.year}.csv', "wb") as file:
             response = current_session.get(download_link)
             while response.status_code != 200:
                 response = current_session.get(download_link)
-            file.write(response.content)
+
+            decompress = zlib.decompress(response.content, wbits=zlib.MAX_WBITS | 16)
+            csv_weather_data: list = decompress.decode('utf-8').splitlines()
+            del csv_weather_data[:7]
+            # print(csv_weather_data)
+            # file.write(decompress)
         return None
     else:
         raise ValueError(f"Запрос погоды из будущего {start_date.year} года!")
+
+
+def update_csv_file(wanted_stations: [WeatherStation], delimiter):
+    """Function update file with our wanted weather stations.
+    It write current date and id of weather station."""
+
+    with open(f"{STATIC_ROOT}cities.txt", "w", encoding="utf-8") as csv_file:
+        csv_data = ""
+        for station in wanted_stations:
+            csv_data = f"{csv_data}{station.to_csv(delimiter)}\n"
+        csv_file.write(csv_data)
 
 
 def get_all_data_for_weather_stations():
     """Function get all weather data for new weather stations from csv file
     from start date of observations to today."""
 
-    new_stations = read_new_cities()
+    wanted_stations = read_new_cities(DELIMITER)
 
-    if new_stations:
-        get_missing_ws_info(new_stations)
+    if wanted_stations:
 
         station: WeatherStation
-        for station in new_stations:
+        for station in wanted_stations:
+            if station.start_date is None or station.ws_id is not None:
+                get_missing_ws_info(station)
             create_directory(station)
             start_year: int = station.start_date.year
             while start_year < datetime.now().year + 1:
@@ -182,7 +208,11 @@ def get_all_data_for_weather_stations():
                     start_date: date = date(start_year, 1, 1)
                 get_weather_for_year(start_date, station.ws_id, station.city)
                 start_year += 1
+                # Now is tested but then must be deleted
+                break
             break
+
+    update_csv_file(wanted_stations, DELIMITER)
     return
 
 
