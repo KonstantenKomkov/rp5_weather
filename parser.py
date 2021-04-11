@@ -169,7 +169,7 @@ def get_weather_for_year(start_date: date, ws_id: int, city: str):
             decompress = zlib.decompress(response.content, wbits=zlib.MAX_WBITS | 16)
             csv_weather_data: list = decompress.decode('utf-8').splitlines()
             del csv_weather_data[:7]
-            # TODO: processing weather data
+            # print(csv_weather_data)
             # file.write(decompress)
         return None
     else:
