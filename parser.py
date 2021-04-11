@@ -1,7 +1,8 @@
 from bs4 import BeautifulSoup
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import zlib
-from pathlib import Path
+from os import listdir, path, mkdir
+import psycopg2
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
 from requests import Session
@@ -9,8 +10,13 @@ from requests import Session
 
 STATIC_ROOT = './static/'
 URL = 'https://rp5.ru/responses/reFileSynop.php'
-current_session: Session = Session()
+current_session: Session = None
 DELIMITER = '#'
+QUERY = "COPY weather (city_id, \"date\", temperature, pressure, pressure_converted, baric_trend, humidity, " \
+        "wind_direction_id, wind_speed, max_wind_speed, max_wind_speed_between, cloud_cover_id, current_weather, " \
+        "past_weather, past_weather_two, min_temperature, max_temperature, cloud_one, cloud_count_id, cloud_hight, " \
+        "cloud_two, cloud_three, visibility, dew_point, rainfall, rainfall_time, soil_condition, soil_temperature, " \
+        f"soil_with_snow, snow_hight) FROM '{STATIC_ROOT}' DELIMITER '{DELIMITER}' NULL AS 'null' CSV HEADER;"
 
 
 class WeatherStation(BaseModel):
@@ -83,7 +89,13 @@ def get_missing_ws_info(station: WeatherStation) -> WeatherStation:
 
 
 def create_directory(ws: WeatherStation):
-    Path(f"{STATIC_ROOT}{ws.city}").mkdir(parents=True, exist_ok=True)
+    try:
+        mkdir(rf"{STATIC_ROOT}{ws.city}")
+    except OSError as e:
+        # 17 - FileExistsError, folder was created earlier.
+        if e.errno != 17:
+            raise
+        pass
 
 
 def get_text_with_link_on_weather_data_file(ws_id: int, start_date: date, last_date: date):
@@ -146,34 +158,100 @@ def get_link_archive_file(text: str) -> str:
     return link
 
 
+def processing_data(csv_weather_data: list) -> str:
+    """Processing data for database. Check models.py for see database structure."""
+
+    values_line = f'city_id{DELIMITER} "date"{DELIMITER} temperature{DELIMITER} pressure{DELIMITER} ' \
+                  f'pressure_converted{DELIMITER} baric_trend{DELIMITER} humidity{DELIMITER} wind_direction_id' \
+                  f'{DELIMITER} wind_speed{DELIMITER} max_wind_speed{DELIMITER} max_wind_speed_between{DELIMITER} ' \
+                  f'cloud_cover_id{DELIMITER} current_weather{DELIMITER} past_weather{DELIMITER} ' \
+                  f'past_weather_two{DELIMITER} min_temperature{DELIMITER} max_temperature{DELIMITER} cloud_one' \
+                  f'{DELIMITER} cloud_count_id{DELIMITER} cloud_hight{DELIMITER} cloud_two{DELIMITER} cloud_three' \
+                  f'{DELIMITER} visibility{DELIMITER} dew_point{DELIMITER} rainfall{DELIMITER} rainfall_time' \
+                  f'{DELIMITER} soil_condition{DELIMITER} soil_temperature{DELIMITER} soil_with_snow{DELIMITER} ' \
+                  f'snow_hight\n'
+    # data from table 'wind_directions'
+    wind_direction = ['Ветер, дующий с юга', 'Ветер, дующий с юго-востока', 'Ветер, дующий с востока',
+                      'Штиль, безветрие', 'Ветер, дующий с юго-юго-востока', 'Ветер, дующий с северо-востока',
+                      'Ветер, дующий с северо-северо-востока', 'Ветер, дующий с западо-северо-запада',
+                      'Ветер, дующий с северо-северо-запада', 'Ветер, дующий с востоко-северо-востока',
+                      'Ветер, дующий с юго-запада', 'Ветер, дующий с юго-юго-запада',
+                      'Ветер, дующий с западо-юго-запада', 'Ветер, дующий с запада',
+                      'Ветер, дующий с северо-запада', 'Ветер, дующий с севера',
+                      'Ветер, дующий с востоко-юго-востока']
+    # data from table 'cloudiness'
+    cloud_cover = ['Облаков нет.', '10%  или менее, но не 0', '20–30', '40', '50', '60',
+                   '70 – 80', '90  или более, но не 100%', '100',
+                   'Небо не видно из-за тумана и/или других метеорологических явлений.']
+    # data from table 'cloudiness_cl'
+    count_cloud_cover_nh = ['Облаков нет.', '10%  или менее, но не 0', '20–30', '40', '50', '60',
+                            '70 – 80', '90  или более, но не 100%', '100', 'null',
+                            'Небо не видно из-за тумана и/или других метеорологических явлений.']
+
+    del csv_weather_data[:7]
+    for x in csv_weather_data:
+        line_list = x.split('";"')
+        line_list[0] = line_list[0][1:-1]
+        line_list[-1] = line_list[-1].replace('";', '')
+
+        for i, row in enumerate(line_list):
+            if row == '' or row == ' ':
+                line_list[i] = 'null'
+
+        line_list[0] = datetime.strptime(line_list[0], '%d.%m.%Y %H:%M')
+
+        if line_list[10] == 'null':
+            line_list[10] = 10
+        else:
+            line_list[10] = cloud_cover.index(line_list[10].replace('%.', '')) + 1
+        line_list[17] = count_cloud_cover_nh.index(line_list[17].replace('%.', '')) + 1
+
+        if line_list[6] in wind_direction:
+            line_list[6] = wind_direction.index(line_list[6]) + 1
+
+        temp = f'{DELIMITER}'.join(map(str, line_list))
+        values_line = f"{values_line}1{DELIMITER}{temp}\n"
+
+    if values_line[-2:-1] == '\n':
+        values_line = values_line[:-2]
+    return values_line
+
+
 def get_weather_for_year(start_date: date, ws_id: int, city: str):
     """Function get archive file from site rp5.ru with weather data for one year
     and save it at directory."""
 
     global current_session
-    if start_date.year <= datetime.now().year:
-        if datetime.now().date() > date(start_date.year, 12, 31):
+    yesterday = datetime.now().date() - timedelta(days=1)
+    if start_date < yesterday:
+        if yesterday > date(start_date.year, 12, 31):
             last_date: date = date(start_date.year, 12, 31)
         else:
-            last_date: date = datetime.now().date()
+            # minus one day because not all data for today will be load
+            last_date: date = yesterday
+
+        # Cookies might be empty, then get PHPSESSID
+        if not current_session.cookies.items():
+            current_session.get('https://rp5.ru/')
 
         answer = get_text_with_link_on_weather_data_file(ws_id, start_date, last_date)
 
         download_link = get_link_archive_file(answer.text)
 
-        with open(f'{STATIC_ROOT}{city}/{start_date.year}.csv', "wb") as file:
+        with open(f'{STATIC_ROOT}{city}/{start_date.year}.csv', "w") as file:
             response = current_session.get(download_link)
             while response.status_code != 200:
                 response = current_session.get(download_link)
 
+            # unzip .gz archive
             decompress = zlib.decompress(response.content, wbits=zlib.MAX_WBITS | 16)
             csv_weather_data: list = decompress.decode('utf-8').splitlines()
-            del csv_weather_data[:7]
-            # print(csv_weather_data)
-            # file.write(decompress)
+            file.write(processing_data(csv_weather_data))
         return None
+    elif start_date == yesterday:
+        print('Data is actual.')
     else:
-        raise ValueError(f"Запрос погоды из будущего {start_date.year} года!")
+        raise ValueError(f"Query to future {start_date.strftime('%Y.%m.%d')}!")
 
 
 def update_csv_file(wanted_stations: [WeatherStation], delimiter):
@@ -188,8 +266,9 @@ def update_csv_file(wanted_stations: [WeatherStation], delimiter):
 
 
 def get_all_data_for_weather_stations():
-    """Function get all weather data for new weather stations from csv file
-    from start date of observations to today."""
+    """Function get all weather data for all weather stations from csv file
+    from start date of observations to today or update data from date of last
+    getting weather."""
 
     wanted_stations = read_new_cities(DELIMITER)
 
@@ -197,8 +276,17 @@ def get_all_data_for_weather_stations():
 
         station: WeatherStation
         for station in wanted_stations:
-            if station.start_date is None or station.ws_id is not None:
+
+            global current_session
+            current_session = Session()
+
+            if station.start_date is None or station.ws_id is None:
                 get_missing_ws_info(station)
+                print(f"Start getting data for {station.city} city with start date of observations {station.start_date}...")
+            else:
+                print(f"Start getting data for {station.city} city with last date of loading "
+                      f"{station.start_date.strftime('%Y.%m.%d')} ...")
+
             create_directory(station)
             start_year: int = station.start_date.year
             while start_year < datetime.now().year + 1:
@@ -208,19 +296,27 @@ def get_all_data_for_weather_stations():
                     start_date: date = date(start_year, 1, 1)
                 get_weather_for_year(start_date, station.ws_id, station.city)
                 start_year += 1
-                # Now is tested but then must be deleted
-                break
-            break
+            station.start_date = datetime.now().date() - timedelta(days=1)
+            print("Data was loaded!")
+            current_session.close()
 
     update_csv_file(wanted_stations, DELIMITER)
     return
 
 
-def get_data_for_weather_stations_with_end_date():
-    """Function get weather data for weather stations from csv file
-    from ended date of last downloads to today."""
-
-    pass
+def load_date_to_database(main_directory):
+    """Function check all directories in STATIC_ROOT folder and
+    insert data to postgresql database."""
+    folders: list = listdir(main_directory)
+    for folder in folders:
+        if path.isdir(f"{STATIC_ROOT}{folder}"):
+            for weather_file in listdir(f"{STATIC_ROOT}{folder}"):
+                print(weather_file)
+                if path.isfile(f"{STATIC_ROOT}{folder}/{weather_file}") and weather_file[-4:] == '.csv':
+                    # TODO: load data to database
+                    pass
+            break
 
 
 get_all_data_for_weather_stations()
+load_date_to_database(STATIC_ROOT)
