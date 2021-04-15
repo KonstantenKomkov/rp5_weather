@@ -13,13 +13,27 @@ class Country(models.Model):
 class City(models.Model):
     country = models.ForeignKey(Country, on_delete=models.CASCADE, verbose_name='страна',)
     name = models.CharField(max_length=50, verbose_name='город',)
-    latitude = models.FloatField(verbose_name='широта метеорологической станции',)
-    longitude = models.FloatField(verbose_name='долгота метеорологической станции',)
 
     class Meta:
         db_table = 'cities'
         verbose_name = 'город'
         verbose_name_plural = 'города'
+
+
+class WeatherStation(models.Model):
+    number = models.IntegerField(verbose_name='идентификатор',)
+    country = models.ForeignKey(Country, on_delete=models.CASCADE, verbose_name='страна',)
+    city = models.ForeignKey(City, null=True, on_delete=models.CASCADE, verbose_name='город',)
+    latitude = models.FloatField(verbose_name='широта метеорологической станции',)
+    longitude = models.FloatField(verbose_name='долгота метеорологической станции',)
+    rp5_link = models.CharField(max_length=255, verbose_name='ссылка на метеостанцию, rp5')
+    last_date = models.DateField(null=True, verbose_name='дата последней загрузки')
+    data_type = models.CharField(max_length=50, verbose_name='метеостанция, METAR, метеодатчик')
+
+    class Meta:
+        db_table = 'weather_stations'
+        verbose_name = 'метеостанция'
+        verbose_name_plural = 'метеостанции'
 
 
 class WindDirection(models.Model):
@@ -58,7 +72,7 @@ class CloudinessCl(models.Model):
 
 # Data from the weather station
 class Weather(models.Model):
-    city = models.ForeignKey(City, on_delete=models.CASCADE, verbose_name='город',)
+    weather_station = models.ForeignKey(WeatherStation, on_delete=models.CASCADE, verbose_name='метеостанция',)
     date = models.DateTimeField(
         verbose_name='дата и время',)
     temperature = models.DecimalField(
