@@ -12,32 +12,33 @@ import queries
 URL = 'https://rp5.ru/responses/reFileSynop.php'
 
 
+def get_start_date(s: str) -> date:
+    """ Function get start date of observations for current weather station."""
+
+    months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля',
+              'августа', 'сентября', 'октября', 'ноября', 'декабря', ]
+    s = s.removeprefix(' номер метеостанции     , наблюдения с ')
+    date_list: list = s.strip(' ').split(' ')
+    year = int(date_list[2])
+    month = months.index(date_list[1]) + 1
+    day = int(date_list[0])
+    return date(year, month, day)
+
+
+def get_coordinates(a: str) -> tuple[float, float]:
+    """ Function find latitude and longitude in html string for weather station."""
+    if isinstance(a, str):
+        if a.find("show_map(") > -1 and a.find(");") > -1 and a.find(", ") > -1:
+            temp = a[a.find("show_map(") + 9:a.find(");")].split(", ")
+            return float(temp[0]), float(temp[1])
+        return None, None
+    else:
+        raise (TypeError(f"must be str, not {type(a)}"))
+
+
 def get_missing_ws_info(current_session: Session, save_in_db: bool, station: classes.WeatherStation) -> \
         classes.WeatherStation:
     """ Getting country, numbers weather station, start date of observations, from site rp5.ru."""
-
-    def get_start_date(s: str) -> date:
-        """ Function get start date of observations for current weather station."""
-
-        months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля',
-                  'августа', 'сентября', 'октября', 'ноября', 'декабря', ]
-        s = s.removeprefix(' номер метеостанции     , наблюдения с ')
-        date_list: list = s.strip(' ').split(' ')
-        year = int(date_list[2])
-        month = months.index(date_list[1]) + 1
-        day = int(date_list[0])
-        start_date = date(year, month, day)
-        return start_date
-
-    def get_coordinates(a: str) -> tuple[float, float]:
-        """ Function find latitude and longitude in html string for weather station."""
-        if isinstance(a, str):
-            if a.find("show_map(") > -1 and a.find(");") > -1 and a.find(", ") > -1:
-                temp = a[a.find("show_map(") + 9:a.find(");")].split(", ")
-                return float(temp[0]), float(temp[1])
-            return None, None
-        else:
-            raise (TypeError(f"must be str, not {type(a)}"))
 
     try:
         response = current_session.get(station.link)
