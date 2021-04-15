@@ -2,7 +2,6 @@ from bs4 import BeautifulSoup
 from datetime import date, datetime, timedelta
 import zlib
 from os import listdir, path, mkdir
-import psycopg2
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
 from requests import Session
@@ -67,7 +66,7 @@ def get_missing_ws_info(station: WeatherStation) -> WeatherStation:
 
         months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля',
                   'августа', 'сентября', 'октября', 'ноября', 'декабря', ]
-        s = s.removeprefix(' номер метеостанции     , наблюдения с ')
+        s = s.removeprefix(' номер метеостанции     , наблюдения с ')
         date_list: list = s.strip(' ').split(' ')
         year = int(date_list[2])
         month = months.index(date_list[1]) + 1
