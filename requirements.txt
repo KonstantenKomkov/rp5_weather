@@ -4,6 +4,8 @@ certifi==2020.12.5
 chardet==4.0.0
 idna==2.10
 lxml==4.6.3
+psycopg2==2.8.6
+pydal==20210215.1
 pydantic==1.8.1
 Pympler==0.9
 requests==2.25.1
