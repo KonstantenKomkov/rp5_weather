@@ -31,7 +31,7 @@ def create_directory(ws: classes.WeatherStation):
         pass
 
 
-def get_weather_for_year(start_date: date, ws_id: int, city: str):
+def get_weather_for_year(start_date: date, number: int, city: str, ws_id: int):
     """ Function get archive file from site rp5.ru with weather data for one year
         and save it at directory."""
 
@@ -48,7 +48,7 @@ def get_weather_for_year(start_date: date, ws_id: int, city: str):
         if not current_session.cookies.items():
             current_session.get('https://rp5.ru/')
 
-        answer = rp5_parser.get_text_with_link_on_weather_data_file(current_session, ws_id, start_date, last_date)
+        answer = rp5_parser.get_text_with_link_on_weather_data_file(current_session, number, start_date, last_date)
 
         download_link = rp5_parser.get_link_archive_file(answer.text)
 
@@ -62,7 +62,7 @@ def get_weather_for_year(start_date: date, ws_id: int, city: str):
             csv_weather_data = decompress.decode('utf-8')
 
             if SAVE_IN_DB:
-                file.write(processing.processing_data(DELIMITER, csv_weather_data.splitlines()))
+                file.write(processing.processing_data(DELIMITER, csv_weather_data.splitlines(), ws_id))
             else:
                 file.write(csv_weather_data)
         return True
@@ -87,7 +87,7 @@ def get_all_data_for_weather_stations():
 
             current_session = Session()
 
-            if station.start_date is None or station.ws_id is None:
+            if station.start_date is None or station.number is None:
                 rp5_parser.get_missing_ws_info(current_session, SAVE_IN_DB, station)
                 print(f"Start getting data for {station.city} city with "
                       f"start date of observations {station.start_date}...")
@@ -98,26 +98,24 @@ def get_all_data_for_weather_stations():
             create_directory(station)
             start_year: int = station.start_date.year
             # TODO: get_country_id, get_city_id, get_weather_stations_id
-            # if SAVE_IN_DB:
-            #     country_id = db.executesql(queries.get_country_id(station.country))
-            #     if country_id:
-            #         station.country
-            #     print(country_id)
-            #     print(db(get_country_id(station.country)))
+            if SAVE_IN_DB:
+                country_id = db.executesql(queries.get_country_id(station.country))[0][0]
+                city_id = db.executesql(queries.get_city_id(station.city, country_id))[0][0]
+                station.ws_id = db.executesql(queries.get_ws_id(station, city_id, country_id))[0][0]
             flag = True
             while start_year < datetime.now().year + 1:
                 if start_year == station.start_date.year:
                     start_date: date = station.start_date
                 else:
                     start_date: date = date(start_year, 1, 1)
-                flag = get_weather_for_year(start_date, station.ws_id, station.city)
+                flag = get_weather_for_year(start_date, station.number, station.city, station.ws_id)
                 start_year += 1
-                break
+                # break
             station.start_date = datetime.now().date() - timedelta(days=1)
             if flag:
                 print("Data was loaded!")
             current_session.close()
-            break
+            # break
 
     weather_csv.update_csv_file(STATIC_ROOT, DELIMITER, wanted_stations)
     return
