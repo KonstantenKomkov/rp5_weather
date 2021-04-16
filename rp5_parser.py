@@ -48,7 +48,7 @@ def get_missing_ws_info(current_session: Session, save_in_db: bool, station: cla
         print(f'Other error occurred: {err}')
     else:
         soup = BeautifulSoup(response.text, 'lxml')
-        station.ws_id = soup.find("input", id="wmo_id").get('value')
+        station.number = soup.find("input", id="wmo_id").get('value')
         station.start_date = get_start_date(soup.find("input", id="wmo_id").parent.text)
         country_span = soup.find("div", class_="intoLeftNavi").find("span", class_="verticalBottom")
         for index, child in enumerate(country_span):
