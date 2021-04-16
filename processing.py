@@ -1,10 +1,10 @@
 from datetime import datetime
 
 
-def processing_data(delimiter: str, csv_weather_data: list) -> str:
+def processing_data(delimiter: str, csv_weather_data: list, ws_id: int) -> str:
     """ Processing data for database. Check models.py for see database structure."""
 
-    values_line = f'city_id{delimiter} "date"{delimiter} temperature{delimiter} pressure{delimiter} ' \
+    values_line = f'weather_station_id{delimiter} "date"{delimiter} temperature{delimiter} pressure{delimiter} ' \
                   f'pressure_converted{delimiter} baric_trend{delimiter} humidity{delimiter} wind_direction_id' \
                   f'{delimiter} wind_speed{delimiter} max_wind_speed{delimiter} max_wind_speed_between{delimiter} ' \
                   f'cloud_cover_id{delimiter} current_weather{delimiter} past_weather{delimiter} ' \
@@ -53,8 +53,7 @@ def processing_data(delimiter: str, csv_weather_data: list) -> str:
             line_list[6] = wind_direction.index(line_list[6]) + 1
 
         temp = f'{delimiter}'.join(map(str, line_list))
-        # {weather_station_id}
-        values_line = f"{values_line}1{delimiter}{temp}\n"
+        values_line = f"{values_line}{ws_id}{delimiter}{temp}\n"
 
     if values_line[-2:-1] == '\n':
         values_line = values_line[:-2]
