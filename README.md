@@ -19,7 +19,7 @@ Write folder path for saving data it is necessarily. If you want use another dat
 Parser work with csv file with 3 required parameters:  
 - city name (maybe place name);
 - link on rp5 site page with that city or place;
-- type of data: 0 - weather station, 1 - METAR, 2 - weather sensor;
+- type of data: 0 - weather station, 1 - METAR, 2 - weather sensor;  
 and optional parameters (parser add it autonomous):
 - last date of download data (yesterday);
 - number of weather station;
