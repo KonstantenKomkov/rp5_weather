@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta
 from os import listdir, mkdir, path
 from requests import Session
 import zlib
+import configparser
 
 
 import classes
@@ -12,11 +13,11 @@ import weather_csv
 import queries
 
 
+config = configparser.ConfigParser()
+config.read("config.ini")
 DELIMITER = '#'
-# path must contain only latin symbols for naming folders
-STATIC_ROOT = 'D:\\Work\\Python\\blueberries\\weather\\static\\'
-# False - save csv file to 'number' weather station folder
-SAVE_IN_DB = True
+STATIC_ROOT = config["path"]["static_root"]
+SAVE_IN_DB = False if config["db"]["database"] == '' else True
 
 
 current_session: Session = None
