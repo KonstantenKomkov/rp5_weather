@@ -7,8 +7,9 @@ config.read("config.ini")
 db = DAL(f'postgres://{config["db"]["user"]}:{config["db"]["password"]}@{config["db"]["host"]}/'
          f'{config["db"]["database"]}', migrate=False)
 
-db.define_table('countries', Field('name', length=50))
-db.define_table('cities', Field('country_id', 'reference countries', ondelete='CASCADE'), Field('city', length=50))
+db.define_table('countries', Field('name', length=50, rname='"name"'))
+db.define_table('cities', Field('country_id', 'reference countries', ondelete='CASCADE'),
+                Field('name', length=50, rname='"name"'))
 db.define_table('weather_stations', Field('country_id', 'reference countries', ondelete='CASCADE'),
                 Field('number', 'integer'), Field('city_id', 'reference cities', ondelete='CASCADE'),
                 Field('latitude', 'double'), Field('longitude', 'double'), Field('rp5_link', length=255),
@@ -16,6 +17,8 @@ db.define_table('weather_stations', Field('country_id', 'reference countries', o
 db.define_table('wind_directions', Field('name', length=50))
 db.define_table('cloudiness', Field('description', length=100), Field('scale', 'integer'))
 db.define_table('cloudiness_cl', Field('description', length=100), Field('scale', 'integer'))
+# Fields 'date' and 'weather_station_id' must be unique
+# For postgresql: CREATE UNIQUE INDEX weather_station_and_datetime_unq ON weather (weather_station_id, "date");
 db.define_table('weather', Field('weather_station_id', 'reference weather_stations', ondelete='CASCADE'),
                 Field('temperature', 'decimal(3,1)'), Field('pressure', 'decimal(4,1)'),
                 Field('pressure_converted', 'decimal(4,1)'), Field('baric_trend', 'decimal(4,1)'),
@@ -29,4 +32,5 @@ db.define_table('weather', Field('weather_station_id', 'reference weather_statio
                 Field('cloud_cm', length=255), Field('cloud_three', length=255), Field('visibility', 'decimal(3,1)'),
                 Field('dew_point', 'decimal(3,1)'), Field('rainfall', length=50), Field('rainfall_time', 'integer'),
                 Field('soil_condition', length=255), Field('soil_temperature', 'decimal(3,1)'),
-                Field('soil_with_snow', length=255), Field('snow_hight', length=255))
+                Field('soil_with_snow', length=255), Field('snow_hight', length=255),
+                Field('date', 'datetime', rname='"date"'))
