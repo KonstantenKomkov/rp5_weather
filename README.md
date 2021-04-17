@@ -29,7 +29,8 @@ and optional parameters (parser add it autonomous):
 - latitude weather station;
 - longitude weather station.
 
-Cities.csv contain some data as example. Put your data here.
+[Cities.csv][3] contain some data as example. Put your data here.
 
-[1]: https://rp5.ru/Погода_в_мире "rp5.ru"
-[2]: http://web2py.com/books/default/chapter/29/06/the-database-abstraction-layer "pyDAL"
+[1]: https://rp5.ru/Погода_в_мире                                                  "rp5.ru"
+[2]: http://web2py.com/books/default/chapter/29/06/the-database-abstraction-layer  "pyDAL"
+[3]: https://github.com/KonstantenKomkov/rp5_weather/blob/master/static/cities.txt "cities.csv"
