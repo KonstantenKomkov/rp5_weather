@@ -14,14 +14,14 @@ def processing_data(delimiter: str, csv_weather_data: list, ws_id: int) -> str:
                   f'{delimiter} soil_condition{delimiter} soil_temperature{delimiter} soil_with_snow{delimiter} ' \
                   f'snow_hight\n'
     # data from table 'wind_directions'
-    wind_direction = ['Ветер, дующий с юга', 'Ветер, дующий с юго-востока', 'Ветер, дующий с востока',
-                      'Штиль, безветрие', 'Ветер, дующий с юго-юго-востока', 'Ветер, дующий с северо-востока',
-                      'Ветер, дующий с северо-северо-востока', 'Ветер, дующий с западо-северо-запада',
-                      'Ветер, дующий с северо-северо-запада', 'Ветер, дующий с востоко-северо-востока',
-                      'Ветер, дующий с юго-запада', 'Ветер, дующий с юго-юго-запада',
-                      'Ветер, дующий с западо-юго-запада', 'Ветер, дующий с запада',
-                      'Ветер, дующий с северо-запада', 'Ветер, дующий с севера',
-                      'Ветер, дующий с востоко-юго-востока']
+    wind_direction = ['ветер, дующий с юга', 'ветер, дующий с юго-востока', 'ветер, дующий с востока',
+                      'штиль, безветрие', 'ветер, дующий с юго-юго-востока', 'ветер, дующий с северо-востока',
+                      'ветер, дующий с северо-северо-востока', 'ветер, дующий с западо-северо-запада',
+                      'ветер, дующий с северо-северо-запада', 'ветер, дующий с востоко-северо-востока',
+                      'ветер, дующий с юго-запада', 'ветер, дующий с юго-юго-запада',
+                      'ветер, дующий с западо-юго-запада', 'ветер, дующий с запада',
+                      'ветер, дующий с северо-запада', 'ветер, дующий с севера',
+                      'ветер, дующий с востоко-юго-востока', 'переменное направление']
     # data from table 'cloudiness'
     cloud_cover = ['Облаков нет.', '10%  или менее, но не 0', '20–30', '40', '50', '60',
                    '70 – 80', '90  или более, но не 100%', '100',
@@ -49,12 +49,22 @@ def processing_data(delimiter: str, csv_weather_data: list, ws_id: int) -> str:
             line_list[10] = cloud_cover.index(line_list[10].replace('%.', '')) + 1
         line_list[17] = count_cloud_cover_nh.index(line_list[17].replace('%.', '')) + 1
 
-        if line_list[6] in wind_direction:
-            line_list[6] = wind_direction.index(line_list[6]) + 1
+        if line_list[6].lower() in wind_direction:
+            line_list[6] = wind_direction.index(line_list[6].lower()) + 1
+        else:
+            line_list[6] = 'null'
+
+        if line_list[21].find('менее ') > -1:
+            line_list[21] = line_list[21].replace('менее ', '')
+
+        # incorrect value for pressure
+        if line_list[2] != 'null':
+            if float(line_list[2]) < 500 or float(line_list[2]) > 900:
+                line_list[2] = 'null'
 
         temp = f'{delimiter}'.join(map(str, line_list))
         values_line = f"{values_line}{ws_id}{delimiter}{temp}\n"
 
     if values_line[-2:-1] == '\n':
         values_line = values_line[:-2]
-    return values_line
+    return values_line.encode('utf-8')
