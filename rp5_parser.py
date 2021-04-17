@@ -6,7 +6,6 @@ from requests.models import Response
 import rp5_headers
 import classes
 from requests import Session
-import queries
 
 
 URL = 'https://rp5.ru/responses/reFileSynop.php'
